@@ -15,7 +15,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -228,21 +230,30 @@ func startPlayer(href string) error {
 		return err
 	}
 
-	resp, err := http.Get("http://www.smithsonianchannel.com" + href)
-	if err != nil {
-		return err
-	}
-	buf, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
+	var streamURL string
+	var start time.Time
+	var pos int
+	var bcid string
 
-	m := rexBcid.FindStringSubmatch(string(buf))
-	bcid := m[1]
+	if strings.HasPrefix(href, "vid/") {
+		streamURL = href
+		bcid = href
+	} else {
 
-	start := time.Now()
-	pos := state.Elapsed[bcid]
-	streamURL := fmt.Sprintf("http://c.brightcove.com/services/mobile/streaming/index/master.m3u8?videoId=%s&pubId=1466806621001", bcid)
+		resp, err := http.Get("http://www.smithsonianchannel.com" + href)
+		if err != nil {
+			return err
+		}
+		buf, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		m := rexBcid.FindStringSubmatch(string(buf))
+		bcid = m[1]
+		start = time.Now()
+		pos = state.Elapsed[bcid]
+		streamURL = fmt.Sprintf("http://c.brightcove.com/services/mobile/streaming/index/master.m3u8?videoId=%s&pubId=1466806621001", bcid)
+	}
 
 	cmd := exec.Command(player, streamURL)
 	log.Printf("%+v\n", cmd.Args)
@@ -294,17 +305,27 @@ func getVideos() ([]item, error) {
 		}
 		list = append(list, it)
 	}
+
+	local, err := filepath.Glob("vid/*")
+	for _, name := range local {
+		it := item{
+			Name: filepath.Base(name),
+			Href: name,
+		}
+		list = append(list, it)
+	}
+
 	return list, nil
 }
 
 func printList(n int) {
 	list, err := getVideos()
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	if n < 0 || n > len(list) {
-		panic("wrong movie index")
+		log.Fatal("wrong movie index")
 	}
 
 	if n > 0 {
@@ -330,7 +351,7 @@ var addr = ":6061"
 
 func init() {
 	user := os.Getenv("USER")
-	if user == "pi" {
+	if user == "pi" || user == "alarm" {
 		player = "omxplayer"
 	}
 	tokenFname = configDir + "/token.txt"
@@ -341,21 +362,21 @@ func createToken() string {
 	b := make([]byte, c)
 	_, err := rand.Read(b)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	s := hex.EncodeToString(b)
 	if err := ioutil.WriteFile(tokenFname, []byte(s), 0600); err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	return s
 }
 
 func main() {
 	if err := os.MkdirAll(cacheDir, 0700); err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	if err := os.MkdirAll(configDir, 0700); err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	buf, err := ioutil.ReadFile(tokenFname)
@@ -363,7 +384,7 @@ func main() {
 	if os.IsNotExist(err) || len(token) == 0 {
 		token = createToken()
 	} else if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	confapi = "https://conf.voilokov.com/" + token + "/stv/config"
 	loadState()
@@ -387,6 +408,6 @@ func main() {
 
 	log.Println("serving: http://localhost" + addr)
 	if err := http.ListenAndServe(addr, nil); err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 }
