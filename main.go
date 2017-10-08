@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"html/template"
 	"io/ioutil"
 	"log"
 	"net"
@@ -17,93 +16,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/godbus/dbus"
 )
-
-var mainPageHTML = `
-<html>
-<head>
-<title>Videos</title>
-<meta name="viewport" content="width=device-width; maximum-scale=1; minimum-scale=1;" />
-<style>
-.button {
-    background-color: #4CAF50; /* Green */
-    border: none;
-    color: white;
-    padding: 15px 32px;
-    text-align: center;
-    vertical-align: middle;
-    text-decoration: none;
-    display: inline-block;
-    font-size: 32px;
-    width: 240px;
-    height: 100px;
-}
-</style>
-</head>
-<body>
-	{{if .Error}}
-	<table border="0" style="width: 260px">
-		<tr><td style="color: red">ERROR: {{.Error}}</td><tr>
-		<tr><td><a class="button" href="/shutdown">Shutdown</a></td><tr>
-		<tr><td><a class="button" href="/restart">Restart</a></td><tr>
-		<tr><td><a class="button" href="/play">Test play</a></td><tr>
-	</table>
-	{{end}}
-	<table border="0">
-		{{range .List}}
-		<tr><td><a class="button" href="/play?href={{.Href}}">{{.Name}}</a></td><tr>
-		{{end}}
-	</table>
-</body>
-</html>
-`
-
-var genericPageHTML = `
-<html>
-<head>
-<title>Videos</title>
-<meta name="viewport" content="width=device-width; maximum-scale=1; minimum-scale=1;" />
-<style>
-.button {
-    background-color: #4C50AF;
-    border: none;
-    color: white;
-    padding: 15px 32px;
-    text-align: center;
-    vertical-align: middle;
-    text-decoration: none;
-    display: inline-block;
-    font-size: 32px;
-    width: 240px;
-    height: 100px;
-}
-</style>
-</head>
-<body>
-	<table border="0" style="width: 260px">
-		{{if .Error}}
-		<tr><td style="color: red">ERROR: {{.Error}}</td><tr>
-		{{end}}
-		<tr><td><a href="/" class="button">Stop</a></td><tr>
-	</table>
-</body>
-</html>
-`
-
-var mt = template.Must(template.New("main").Parse(mainPageHTML))
-var gt = template.Must(template.New("generic").Parse(genericPageHTML))
-
-type item struct {
-	Name string
-	Href string
-}
-
-type mainData struct {
-	Error error
-	List  []item
-}
 
 func mainHandler(w http.ResponseWriter, r *http.Request) {
 	if r.RequestURI != "/" {
@@ -118,10 +36,6 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-}
-
-type genericData struct {
-	Error error
 }
 
 func restartHandler(w http.ResponseWriter, r *http.Request) {
@@ -141,11 +55,27 @@ func shutdownHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func playHandler(w http.ResponseWriter, r *http.Request) {
-	href := r.URL.Query().Get("href")
-	log.Println("starting player")
 	var d genericData
-	d.Error = startPlayer(href)
-	if err := gt.Execute(w, d); err != nil {
+
+	href := r.URL.Query().Get("href")
+	if href != "" {
+		log.Println("starting player")
+		d.Error = startPlayer(href)
+	}
+
+	seek := r.URL.Query().Get("seek")
+	if seek != "" {
+		d, _ := time.ParseDuration(seek)
+		seekPlayer(d)
+	}
+
+	vol := r.URL.Query().Get("vol")
+	if vol != "" {
+		n, _ := strconv.Atoi(vol)
+		changeVolume(n)
+	}
+
+	if err := playTemplate.Execute(w, d); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -240,13 +170,13 @@ func startPlayer(href string) error {
 		bcid = href
 	} else {
 
-		resp, err := http.Get("http://www.smithsonianchannel.com" + href)
-		if err != nil {
-			return err
+		resp, err1 := http.Get("http://www.smithsonianchannel.com" + href)
+		if err1 != nil {
+			return err1
 		}
-		buf, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return err
+		buf, err1 := ioutil.ReadAll(resp.Body)
+		if err1 != nil {
+			return err1
 		}
 		m := rexBcid.FindStringSubmatch(string(buf))
 		bcid = m[1]
@@ -280,6 +210,18 @@ func startPlayer(href string) error {
 	return err
 }
 
+func seekPlayer(d time.Duration) {
+	// TODO: call dbus
+}
+
+func changeVolume(percent int) {
+	// TODO: call dbus
+}
+
+func pausePlayer() {
+	// TODO: call dbus
+}
+
 func getVideos() ([]item, error) {
 	resp, err := http.Get("http://www.smithsonianchannel.com/full-episodes")
 	if err != nil {
@@ -306,7 +248,7 @@ func getVideos() ([]item, error) {
 		list = append(list, it)
 	}
 
-	local, err := filepath.Glob("vid/*")
+	local, _ := filepath.Glob("vid/*")
 	for _, name := range local {
 		it := item{
 			Name: filepath.Base(name),
@@ -371,6 +313,8 @@ func createToken() string {
 	return s
 }
 
+var dbusc *dbus.Conn
+
 func main() {
 	if err := os.MkdirAll(cacheDir, 0700); err != nil {
 		log.Fatal(err)
@@ -388,6 +332,11 @@ func main() {
 	}
 	confapi = "https://conf.voilokov.com/" + token + "/stv/config"
 	loadState()
+
+	dbusc, err = dbus.SessionBus()
+	if err != nil {
+		panic(err)
+	}
 
 	log.Println("player:", player, "token:", token)
 	addrs, _ := net.InterfaceAddrs()
