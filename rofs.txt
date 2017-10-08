@@ -1,0 +1,100 @@
+## Read-only FS on Arch Linux ARM
+
+Unlike your typical computer where you usually shutdown properly, I 
+cannot rely on this during the use of my Raspberry Pi. If the Raspberry 
+Pi is improperly shutdown too many times, data corruption in the file 
+system leading to unbootable SD card may result. So we should use a 
+read-only file system.
+
+Full instructions and explanations are obtained from this 
+[link](http://ruiabreu.org/2013-06-02-booting-raspberry-pi-in-readonly.h
+tml) but you can run these commands directly. I modified some of the 
+instructions for personal convenience.
+
+Login with default username: alarm, password: alarm
+
+```bash
+#Optionally enable root over SSH. The rest of these instructions assume 
+u are in root.
+su
+nano /etc/ssh/sshd_config
+#Add "PermitRootLogin yes" to the Authentication section after 
+"#PermitRootLogin prohibit-password" then save
+reboot
+
+#Login as root
+
+
+#Update everything first, remove cache then reboot to detect problems
+pacman -Syu  
+# Delete certs if you see a message like 
+"/etc/ssl/certs/ca-certificates.crt exists in filesystem" then rerun 
+pacman -Syu
+rm /etc/ssl/certs/ca-certificates.crt
+#May be needed if the pacman version has changed during the update
+pacman-db-upgrade
+#Optional if you want to clear the cache
+pacman -Sc
+reboot
+
+#Change timezone (optional)
+rm /etc/localtime
+ln -s /usr/share/zoneinfo/Asia/Singapore /etc/localtime
+
+#Relocate DNS cache (This step causes DNS problems on the latest Arch 
+Linux ARM kernels so skip this)
+#rm /etc/resolv.conf
+#ln -s /tmp/resolv.conf /etc/resolv.conf
+
+#Adjust /etc/fstab, add/modify to the following hashed lines. Mount 
+certain directories to RAM disk.
+nano /etc/fstab
+#Add the following lines up to the #end. Include the first commented 
+line in case you have to set to write enabled next time.
+#/dev/mmcblk0p1  /boot           vfat    defaults        0       0
+/dev/mmcblk0p1  /boot   vfat    defaults,ro,errors=remount-ro        0  0
+tmpfs   /var/log    tmpfs   nodev,nosuid    0   0
+tmpfs   /var/tmp    tmpfs   nodev,nosuid    0   0
+#end
+
+#Adjust journald service to not log the system log to prevent flooding 
+of the /var/log folder
+nano /etc/systemd/journald.conf
+#Uncomment and set "Storage=none"
+
+#To mount / partition as read-only
+nano /boot/cmdline.txt
+#Replace the "rw" flag with the "ro" flag right after the root= 
+parameter.
+
+#Disable systemd services
+#systemctl disable systemd-readahead-collect #Not working now
+systemctl disable systemd-random-seed
+#systemctl disable ntpd #Not working now
+
+#Put shortcut shell scripts to re-enable read-write temporarily if 
+needed
+printf "mount -o remount,rw /\nmount -o remount,rw /boot" > 
+writeenable.sh
+printf "mount -o remount,ro /\nmount -o remount,ro /boot" > readonly.sh
+chmod 500 writeenable.sh
+chmod 500 readonly.sh
+
+#Change your password if needed (Optional)
+"passwd root" or "passwd alarm" 
+
+#Remove history
+history -c -w
+
+reboot
+```
+
+To enable read-write temporarily to do say an update, just run 
+`./writeenable.sh`.
+
+
+## References
+
+1. [Read-only file 
+system](http://ruiabreu.org/2013-06-02-booting-raspberry-pi-in-readonly.
+html)
