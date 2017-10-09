@@ -133,13 +133,6 @@ func saveState() {
 	}
 }
 
-var (
-	rexLI    = regexp.MustCompile("(?sU)data-premium.*</li>")
-	rexHref  = regexp.MustCompile("(?sU)href=\"([^\"]+)\"")
-	rexTitle = regexp.MustCompile("(?sU)<h2 class=\"promo-show-name\">(.*)</h2>")
-	rexBcid  = regexp.MustCompile("data-bcid=\"([^\"]+)\"")
-)
-
 var pid int
 
 func stopPlayer() error {
@@ -223,30 +216,6 @@ func pausePlayer() {
 }
 
 func getVideos() ([]item, error) {
-	resp, err := http.Get("http://www.smithsonianchannel.com/full-episodes")
-	if err != nil {
-		return nil, err
-	}
-	buf, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	s := string(buf)
-
-	chunks := rexLI.FindAllStringIndex(s, 20)
-	list := make([]item, 0, len(chunks))
-
-	for _, c := range chunks {
-		ss := s[c[0]:c[1]]
-		href := rexHref.FindStringSubmatch(ss)
-		title := rexTitle.FindStringSubmatch(ss)
-		it := item{
-			Name: title[1],
-			Href: href[1],
-		}
-		list = append(list, it)
-	}
 
 	local, _ := filepath.Glob("vid/*")
 	for _, name := range local {
