@@ -247,6 +247,9 @@ func init() {
 	if user == "pi" || user == "alarm" {
 		player = "omxplayer"
 		playerArgs = []string{}
+	} else if user == "odroid" {
+		player = "vlc"
+		playerArgs = []string{}
 	}
 	tokenFname = configDir + "/token.txt"
 }
