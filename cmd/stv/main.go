@@ -15,12 +15,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/godbus/dbus"
+	"github.com/serge-v/stv/channel"
 )
 
 func mainHandler(w http.ResponseWriter, r *http.Request) {
@@ -31,7 +30,17 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 	stopPlayer()
 
 	var d mainData
-	d.List, d.Error = getVideos()
+	d.List, d.Error = getLocalVideos()
+	log.Printf("%v", d.List)
+
+	var rd mainData
+	if err := unmarshalURL(listEndpoint, &rd); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	d.List = append(d.List, rd.List...)
+
 	if err := mt.Execute(w, d); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -86,6 +95,25 @@ type programState struct {
 
 var state = programState{
 	Elapsed: make(map[string]int),
+}
+
+func unmarshalURL(srcurl string, v interface{}) error {
+	resp, err := http.Get(srcurl)
+	if err != nil {
+		log.Println("unmarshalURL", err.Error())
+		return err
+	}
+	if resp.StatusCode != http.StatusOK {
+		log.Println("unmarshalURL status:", resp.StatusCode)
+		return err
+	}
+	dec := json.NewDecoder(resp.Body)
+	defer resp.Body.Close()
+	if err := dec.Decode(v); err != nil {
+		log.Println("unmarshalURL", err.Error())
+		return err
+	}
+	return nil
 }
 
 func loadState() {
@@ -153,32 +181,10 @@ func startPlayer(href string) error {
 		return err
 	}
 
-	var streamURL string
-	var start time.Time
-	var pos int
-	var bcid string
-
-	if strings.HasPrefix(href, "vid/") {
-		streamURL = href
-		bcid = href
-	} else {
-
-		resp, err1 := http.Get("http://www.smithsonianchannel.com" + href)
-		if err1 != nil {
-			return err1
-		}
-		buf, err1 := ioutil.ReadAll(resp.Body)
-		if err1 != nil {
-			return err1
-		}
-		m := rexBcid.FindStringSubmatch(string(buf))
-		bcid = m[1]
-		start = time.Now()
-		pos = state.Elapsed[bcid]
-		streamURL = fmt.Sprintf("http://c.brightcove.com/services/mobile/streaming/index/master.m3u8?videoId=%s&pubId=1466806621001", bcid)
-	}
-
-	cmd := exec.Command(player, streamURL)
+	streamURL := href
+	args := append([]string{}, playerArgs...)
+	args = append(args, streamURL)
+	cmd := exec.Command(player, args...)
 	log.Printf("%+v\n", cmd.Args)
 
 	if err = cmd.Start(); err != nil {
@@ -192,11 +198,7 @@ func startPlayer(href string) error {
 			println(err.Error())
 		}
 		pid = 0
-		elapsed := time.Since(start)
-		if elapsed > 20 {
-			state.Elapsed[bcid] = pos + int(elapsed.Seconds()) - 10
-		}
-		log.Println("player stopped. elapsed: ", elapsed)
+		log.Println("player stopped")
 		saveState()
 	}()
 
@@ -215,11 +217,11 @@ func pausePlayer() {
 	// TODO: call dbus
 }
 
-func getVideos() ([]item, error) {
-
+func getLocalVideos() ([]channel.Item, error) {
 	local, _ := filepath.Glob("vid/*")
+	list := []channel.Item{}
 	for _, name := range local {
-		it := item{
+		it := channel.Item{
 			Name: filepath.Base(name),
 			Href: name,
 		}
@@ -229,41 +231,22 @@ func getVideos() ([]item, error) {
 	return list, nil
 }
 
-func printList(n int) {
-	list, err := getVideos()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if n < 0 || n > len(list) {
-		log.Fatal("wrong movie index")
-	}
-
-	if n > 0 {
-		startPlayer(list[n-1].Href)
-		return
-	}
-
-	for idx, item := range list {
-		fmt.Println(idx+1, item.Name)
-	}
-}
-
 var debug = flag.Bool("d", false, "debug in console")
-var playNum = flag.Int("p", 0, "play episode `NUM`")
 var cacheDir = os.Getenv("HOME") + "/.cache/stv"
 var configDir = os.Getenv("HOME") + "/.config/stv"
 var player = "mplayer"
-var playerArgs = []string{}
+var playerArgs = []string{"-geometry", "480x240+1920+0"}
 var token string
 var tokenFname string
 var confapi string
+var listEndpoint string
 var addr = ":6061"
 
 func init() {
 	user := os.Getenv("USER")
 	if user == "pi" || user == "alarm" {
 		player = "omxplayer"
+		playerArgs = []string{}
 	}
 	tokenFname = configDir + "/token.txt"
 }
@@ -285,6 +268,7 @@ func createToken() string {
 var dbusc *dbus.Conn
 
 func main() {
+	flag.Parse()
 	if err := os.MkdirAll(cacheDir, 0700); err != nil {
 		log.Fatal(err)
 	}
@@ -300,23 +284,22 @@ func main() {
 		log.Fatal(err)
 	}
 	confapi = "https://conf.voilokov.com/" + token + "/stv/config"
+	listEndpoint = "https://conf.voilokov.com/" + token + "/stv/list"
+	if *debug {
+		confapi = "http://localhost:8085/stv/config"
+		listEndpoint = "http://localhost:8085/stv/list"
+	}
 	loadState()
 
-	dbusc, err = dbus.SessionBus()
-	if err != nil {
-		panic(err)
-	}
+	//	dbusc, err = dbus.SessionBus()
+	//	if err != nil {
+	//		panic(err)
+	//	}
 
 	log.Println("player:", player, "token:", token)
 	addrs, _ := net.InterfaceAddrs()
 	for _, addr := range addrs {
 		log.Println("addr: ", addr.String())
-	}
-
-	flag.Parse()
-	if *debug {
-		printList(*playNum)
-		return
 	}
 
 	http.HandleFunc("/shutdown", shutdownHandler)

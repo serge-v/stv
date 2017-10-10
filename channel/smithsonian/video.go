@@ -1,6 +1,7 @@
 package smithsonian
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -9,19 +10,18 @@ import (
 	"os"
 	"regexp"
 	"strconv"
-)
+	"strings"
 
-type Item struct {
-	ID   int
-	Name string
-	Href string
-}
+	"github.com/serge-v/stv/channel"
+)
 
 var (
 	rexLI    = regexp.MustCompile("(?sU)data-premium.*</li>")
 	rexHref  = regexp.MustCompile("(?sU)href=\"([^\"]+)\"")
 	rexTitle = regexp.MustCompile("(?sU)<h2 class=\"promo-show-name\">(.*)</h2>")
 	rexBcid  = regexp.MustCompile("data-bcid=\"([^\"]+)\"")
+
+	cacheDir = os.Getenv("HOME") + "./local/dl/"
 )
 
 func getStreamURL(href string) (int, string, error) {
@@ -44,8 +44,7 @@ func getStreamURL(href string) (int, string, error) {
 	return id, url, nil
 }
 
-func cached(id int) bool {
-	fname := fmt.Sprintf("smithsonian-%d.mp4", id)
+func cached(fname string) bool {
 	_, err := os.Stat(fname)
 	if err == nil {
 		return true
@@ -53,15 +52,14 @@ func cached(id int) bool {
 	return false
 }
 
-func download(id int, url string) error {
-	fname := fmt.Sprintf("smithsonian-%d.mp4", id)
+func download(fname, srcurl string) error {
 	f, err := os.Create(fname)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	resp, err := http.Get(url)
+	resp, err := http.Get(srcurl)
 	if err != nil {
 		return err
 	}
@@ -70,13 +68,83 @@ func download(id int, url string) error {
 	if err != nil {
 		return err
 	}
-	log.Println("id:", id, "written:", written)
+	log.Println("fname:", fname, "written:", written)
 
 	return nil
 }
 
-func GetVideos() ([]Item, error) {
-	resp, err := http.Get("http://www.smithsonianchannel.com/full-episodes")
+func getVideoURL(fname string) (string, error) {
+	f, err := os.Open(fname)
+	if err != nil {
+		return "", err
+	}
+
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	found := false
+	vidurl := ""
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "#EXT-X-STREAM-INF") && strings.HasSuffix(line, ",RESOLUTION=640x360") {
+			found = true
+			break
+		}
+	}
+	if found {
+		if scanner.Scan() {
+			vidurl = scanner.Text()
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	if vidurl == "" {
+		return "", fmt.Errorf("cannot get videourl from %s", fname)
+	}
+	return vidurl, nil
+}
+
+func saveSegments(dstfname, fname string) (int64, error) {
+	out, err := os.Create(dstfname)
+	if err != nil {
+		return 0, err
+	}
+
+	f, err := os.Open(fname)
+	if err != nil {
+		return 0, err
+	}
+
+	defer f.Close()
+	var totalWritten int64
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "http") {
+			continue
+		}
+		resp, err := http.Get(line)
+		if err != nil {
+			return 0, err
+		}
+		written, err := io.Copy(out, resp.Body)
+		if err != nil {
+			return 0, err
+		}
+		totalWritten += written
+		if totalWritten%(1024*1024) == 0 {
+			log.Println(totalWritten/1024/1024, "Mib")
+		}
+		resp.Body.Close()
+	}
+	out.Close()
+	return totalWritten, nil
+}
+
+func GetVideos() ([]channel.Item, error) {
+	url := "http://www.smithsonianchannel.com/full-episodes"
+	log.Println("loading:", url)
+	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err
 	}
@@ -88,26 +156,51 @@ func GetVideos() ([]Item, error) {
 	s := string(buf)
 
 	chunks := rexLI.FindAllStringIndex(s, 20)
-	list := make([]Item, 0, len(chunks))
+	list := make([]channel.Item, 0, len(chunks))
+	saved := 0
 
 	for _, c := range chunks {
 		ss := s[c[0]:c[1]]
 		href := rexHref.FindStringSubmatch(ss)[1]
 		title := rexTitle.FindStringSubmatch(ss)[1]
 		id, stream, err := getStreamURL(href)
+		fname := fmt.Sprintf("%s/sms-a-%d.txt", cacheDir, id)
+		log.Println("id:", id, "title:", title)
 		if err != nil {
 			return nil, err
 		}
-		if !cached(id) {
-			if err := download(id, stream); err != nil {
+		if !cached(fname) {
+			if err := download(fname, stream); err != nil {
 				return nil, err
 			}
 		}
 
-		it := Item{
+		videoURL, err := getVideoURL(fname)
+		if err != nil {
+			return nil, err
+		}
+		log.Println("id:", id, "videoURL:", videoURL)
+		videoFname := fmt.Sprintf("%s/sms-b-%d.txt", cacheDir, id)
+		if !cached(videoFname) {
+			if err := download(videoFname, videoURL); err != nil {
+				return nil, err
+			}
+		}
+
+		dstfname := fmt.Sprintf("%s/sms-c-%d.mp4", cacheDir, id)
+		size := int64(0)
+		if saved == 0 && !cached(dstfname) {
+			if size, err = saveSegments(dstfname, videoFname); err != nil {
+				return nil, err
+			}
+			saved++
+		}
+
+		it := channel.Item{
 			ID:   id,
 			Name: title,
-			Href: href,
+			Href: fmt.Sprintf("sms-c-%d.mp4", id),
+			Size: size,
 		}
 		list = append(list, it)
 	}

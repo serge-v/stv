@@ -1,15 +1,14 @@
 package main
 
-import "html/template"
+import (
+	"html/template"
 
-type item struct {
-	Name string
-	Href string
-}
+	"github.com/serge-v/stv/channel"
+)
 
 type mainData struct {
 	Error error
-	List  []item
+	List  []channel.Item
 }
 
 var mainPageHTML = `
