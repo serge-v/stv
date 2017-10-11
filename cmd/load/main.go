@@ -19,20 +19,29 @@ type Response struct {
 	List  []channel.Item
 }
 
-func testSerialization() {
-	resp := Response{
-		Count: 1,
-		List:  []channel.Item{channel.Item{Name: "test", Href: "testhref"}},
-	}
+func createList() {
+	resp := Response{}
 
 	local, _ := filepath.Glob(cacheDir + "/*.mp4")
 	for _, path := range local {
+		fi, err := os.Stat(path)
+		if err != nil {
+			panic(err)
+		}
 		name := filepath.Base(path)
 		href := filepath.Base(path)
-		name = strings.TrimSuffix(name, ".mp4")
+		titleFname := strings.TrimSuffix(path, ".mp4") + ".info"
+		buf, err := ioutil.ReadFile(titleFname)
+		title := ""
+		if err != nil {
+			title = name
+		} else {
+			title = string(buf)
+		}
 		it := channel.Item{
-			Name: name,
-			Href: "http://localhost:8085/stv/file/" + href,
+			Name: title,
+			Href: "http://wet.voilokov.com:8085/stv/file/" + href,
+			Size: fi.Size(),
 		}
 		resp.List = append(resp.List, it)
 	}
@@ -48,8 +57,10 @@ func testSerialization() {
 	}
 
 	fname := os.Getenv("HOME") + "/.local/dl/list.json"
-	ioutil.WriteFile(fname, buf, 0666)
-	fmt.Printf("%+v\n", respcli)
+	err = ioutil.WriteFile(fname, buf, 0666)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func configHandler(w http.ResponseWriter, r *http.Request) {
@@ -69,29 +80,24 @@ func runFileServer() {
 }
 
 var server = flag.Bool("server", false, "start server")
-var test = flag.Bool("test", false, "run test")
+var list = flag.Bool("list", false, "create list")
+var load = flag.Bool("load", false, "load one item")
 var cacheDir = os.Getenv("HOME") + "/.local/dl"
 
 func main() {
 	flag.Parse()
-	if *test {
-		testSerialization()
-		return
-	}
+
 	if *server {
 		runFileServer()
 		return
 	}
 
-	list, err := smithsonian.GetVideos()
-	if err != nil {
-		panic(err)
+	if *load {
+		err := smithsonian.CacheVideos()
+		if err != nil {
+			panic(err)
+		}
 	}
-	resp := Response{
-		Count: len(list),
-		List:  list,
-	}
-	for idx, item := range resp.List {
-		fmt.Printf("%d. %s\n", idx+1, item.Name)
-	}
+
+	createList()
 }
