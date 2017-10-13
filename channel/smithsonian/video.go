@@ -40,12 +40,12 @@ func getStreamURL(href string) (int, string, error) {
 	return id, url, nil
 }
 
-func cached(fname string) bool {
-	_, err := os.Stat(fname)
+func stat(fname string) (int64, bool) {
+	fi, err := os.Stat(fname)
 	if err == nil {
-		return true
+		return fi.Size(), true
 	}
-	return false
+	return 0, false
 }
 
 func download(fname, srcurl string) error {
@@ -164,7 +164,8 @@ func CacheVideo(cacheDir string) error {
 		if err != nil {
 			return err
 		}
-		if !cached(fname) {
+		_, cached := stat(fname)
+		if !cached {
 			if err := download(fname, stream); err != nil {
 				return err
 			}
@@ -176,19 +177,28 @@ func CacheVideo(cacheDir string) error {
 		}
 		log.Println("id:", id, "videoURL:", videoURL)
 		videoFname := fmt.Sprintf("%s/sms-b-%d.txt", cacheDir, id)
-		if !cached(videoFname) {
+		_, cached = stat(videoFname)
+		if !cached {
 			if err := download(videoFname, videoURL); err != nil {
 				return err
 			}
 		}
 
 		dstfname := fmt.Sprintf("%s/sms-c-%d.mp4", cacheDir, id)
-		if saved == 0 && !cached(dstfname) {
+		_, cached = stat(dstfname)
+		if saved == 0 && !cached {
 			if _, err = saveSegments(dstfname, videoFname); err != nil {
 				return err
 			}
 			saved++
 		}
+
+		infoFname := fmt.Sprintf("%s/sms-c-%d.info", cacheDir, id)
+		infof, err := os.Create(infoFname)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(infof, title)
 	}
 
 	return nil
