@@ -37,7 +37,7 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 
 	var rd mainData
 	if err := unmarshalURL(listEndpoint, &rd); err != nil {
-		rd.List = []channel.Item{channel.Item{Name: err.Error()}}
+		rd.List = []channel.Item{channel.Item{Title: err.Error()}}
 		log.Println("mainHandler", err.Error())
 	}
 
@@ -65,13 +65,28 @@ func shutdownHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func getVideoURL(id string) string {
+	var resp mainData
+	if err := unmarshalURL(listEndpoint, &resp); err != nil {
+		log.Println("getVideoURL", err.Error())
+		return ""
+	}
+	for _, item := range resp.List {
+		if id == item.ID {
+			return "http://localhost:6061/stv/" + token + "/stv/file/" + id + ".mp4"
+		}
+	}
+	return ""
+}
+
 func playHandler(w http.ResponseWriter, r *http.Request) {
 	var d genericData
 
-	href := r.URL.Query().Get("href")
-	if href != "" {
-		log.Println("starting player")
-		d.Error = startPlayer(href)
+	id := r.URL.Query().Get("id")
+	if id != "" {
+		link := getVideoURL(id)
+		log.Println("starting player:", link)
+		d.Error = startPlayer(link)
 	}
 
 	seek := r.URL.Query().Get("seek")
@@ -108,11 +123,11 @@ func unmarshalURL(srcurl string, v interface{}) error {
 	//	resp, err := http.Get(srcurl)
 
 	if err != nil {
-		log.Println("unmarshalURL", err.Error())
+		log.Println("unmarshalURL:", srcurl, "error:", err.Error())
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
-		log.Println("unmarshalURL status:", resp.StatusCode)
+		log.Println("unmarshalURL:", srcurl, "status:", resp.StatusCode)
 		return fmt.Errorf("list: %s", resp.Status)
 	}
 	dec := json.NewDecoder(resp.Body)
@@ -228,10 +243,11 @@ func pausePlayer() {
 func getLocalVideos() ([]channel.Item, error) {
 	local, _ := filepath.Glob("vid/*")
 	list := []channel.Item{}
-	for _, name := range local {
+	for idx, path := range local {
 		it := channel.Item{
-			Name: filepath.Base(name),
-			Href: name,
+			ID:    fmt.Sprintf("%d", idx),
+			Title: filepath.Base(path),
+			Link:  path,
 		}
 		list = append(list, it)
 	}
@@ -296,9 +312,11 @@ func main() {
 	}
 	confapi = "https://conf.voilokov.com/" + token + "/stv/config"
 	listEndpoint = "https://conf.voilokov.com/" + token + "/stv/list.json"
+	proxyURL := "https://conf.voilokov.com/"
 	if *debug {
 		confapi = "https://conf.svtest.com:9001/" + token + "/stv/config"
 		listEndpoint = "https://conf.svtest.com:9001/" + token + "/stv/list.json"
+		proxyURL = "https://conf.svtest.com:9001/"
 	}
 	loadState()
 
@@ -317,7 +335,7 @@ func main() {
 	http.HandleFunc("/restart", restartHandler)
 	http.HandleFunc("/play", playHandler)
 	http.HandleFunc("/", mainHandler)
-	u, err := url.Parse("https://conf.svtest.com:9001/")
+	u, err := url.Parse(proxyURL)
 	if err != nil {
 		panic(err)
 	}

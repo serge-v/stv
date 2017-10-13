@@ -1,9 +1,8 @@
 package channel
 
 type Item struct {
-	ID   string
-	Name string
-	Href string
-	Path string
-	Size int64
+	ID    string // timestamp based id
+	Title string
+	Link  string // direct http link to file
+	Path  string // absolute fs path
 }

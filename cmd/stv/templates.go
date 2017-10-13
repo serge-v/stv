@@ -43,7 +43,7 @@ var mainPageHTML = `
 	{{end}}
 	<table border="0">
 		{{range .List}}
-		<tr><td><a class="button" href="/play?href={{.Href}}">{{.Name}}</a></td><tr>
+		<tr><td><a class="button" href="/play?id={{.ID}}">{{.Title}}</a></td><tr>
 		{{end}}
 	</table>
 </body>
