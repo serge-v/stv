@@ -1,8 +1,9 @@
 package channel
 
 type Item struct {
-	ID   int
+	ID   string
 	Name string
 	Href string
+	Path string
 	Size int64
 }

@@ -11,8 +11,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/serge-v/stv/channel"
 )
 
 var (
@@ -20,8 +18,6 @@ var (
 	rexHref  = regexp.MustCompile("(?sU)href=\"([^\"]+)\"")
 	rexTitle = regexp.MustCompile("(?sU)<h2 class=\"promo-show-name\">(.*)</h2>")
 	rexBcid  = regexp.MustCompile("data-bcid=\"([^\"]+)\"")
-
-	cacheDir = os.Getenv("HOME") + "./local/dl/"
 )
 
 func getStreamURL(href string) (int, string, error) {
@@ -141,22 +137,21 @@ func saveSegments(dstfname, fname string) (int64, error) {
 	return totalWritten, nil
 }
 
-func GetVideos() ([]channel.Item, error) {
+func CacheVideo(cacheDir string) error {
 	url := "http://www.smithsonianchannel.com/full-episodes"
 	log.Println("loading:", url)
 	resp, err := http.Get(url)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	buf, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	s := string(buf)
 
 	chunks := rexLI.FindAllStringIndex(s, 20)
-	list := make([]channel.Item, 0, len(chunks))
 	saved := 0
 
 	for _, c := range chunks {
@@ -167,43 +162,34 @@ func GetVideos() ([]channel.Item, error) {
 		fname := fmt.Sprintf("%s/sms-a-%d.txt", cacheDir, id)
 		log.Println("id:", id, "title:", title)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if !cached(fname) {
 			if err := download(fname, stream); err != nil {
-				return nil, err
+				return err
 			}
 		}
 
 		videoURL, err := getVideoURL(fname)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		log.Println("id:", id, "videoURL:", videoURL)
 		videoFname := fmt.Sprintf("%s/sms-b-%d.txt", cacheDir, id)
 		if !cached(videoFname) {
 			if err := download(videoFname, videoURL); err != nil {
-				return nil, err
+				return err
 			}
 		}
 
 		dstfname := fmt.Sprintf("%s/sms-c-%d.mp4", cacheDir, id)
-		size := int64(0)
 		if saved == 0 && !cached(dstfname) {
-			if size, err = saveSegments(dstfname, videoFname); err != nil {
-				return nil, err
+			if _, err = saveSegments(dstfname, videoFname); err != nil {
+				return err
 			}
 			saved++
 		}
-
-		it := channel.Item{
-			ID:   id,
-			Name: title,
-			Href: fmt.Sprintf("sms-c-%d.mp4", id),
-			Size: size,
-		}
-		list = append(list, it)
 	}
 
-	return list, nil
+	return nil
 }

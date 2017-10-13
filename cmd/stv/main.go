@@ -12,10 +12,13 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/godbus/dbus"
@@ -31,12 +34,11 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 
 	var d mainData
 	d.List, d.Error = getLocalVideos()
-	log.Printf("%v", d.List)
 
 	var rd mainData
 	if err := unmarshalURL(listEndpoint, &rd); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		rd.List = []channel.Item{channel.Item{Name: err.Error()}}
+		log.Println("mainHandler", err.Error())
 	}
 
 	d.List = append(d.List, rd.List...)
@@ -98,14 +100,20 @@ var state = programState{
 }
 
 func unmarshalURL(srcurl string, v interface{}) error {
-	resp, err := http.Get(srcurl)
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{Transport: tr}
+	resp, err := client.Get(srcurl)
+	//	resp, err := http.Get(srcurl)
+
 	if err != nil {
 		log.Println("unmarshalURL", err.Error())
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
 		log.Println("unmarshalURL status:", resp.StatusCode)
-		return err
+		return fmt.Errorf("list: %s", resp.Status)
 	}
 	dec := json.NewDecoder(resp.Body)
 	defer resp.Body.Close()
@@ -287,10 +295,10 @@ func main() {
 		log.Fatal(err)
 	}
 	confapi = "https://conf.voilokov.com/" + token + "/stv/config"
-	listEndpoint = "https://conf.voilokov.com/" + token + "/stv/list"
+	listEndpoint = "https://conf.voilokov.com/" + token + "/stv/list.json"
 	if *debug {
-		confapi = "http://localhost:8085/stv/config"
-		listEndpoint = "http://localhost:8085/stv/list"
+		confapi = "https://conf.svtest.com:9001/" + token + "/stv/config"
+		listEndpoint = "https://conf.svtest.com:9001/" + token + "/stv/list.json"
 	}
 	loadState()
 
@@ -309,6 +317,26 @@ func main() {
 	http.HandleFunc("/restart", restartHandler)
 	http.HandleFunc("/play", playHandler)
 	http.HandleFunc("/", mainHandler)
+	u, err := url.Parse("https://conf.svtest.com:9001/")
+	if err != nil {
+		panic(err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	proxy.Transport = &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	d := proxy.Director
+	proxy.Director = func(r *http.Request) {
+		r.Host = u.Host
+		log.Println("url1:", r.URL.String())
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/stv")
+		log.Println("url2:", r.URL.String())
+		buf, _ := httputil.DumpRequest(r, false)
+		log.Println("proxy:", string(buf))
+		d(r)
+	}
+
+	http.Handle("/stv/", proxy)
 
 	log.Println("serving: http://localhost" + addr)
 	if err := http.ListenAndServe(addr, nil); err != nil {
