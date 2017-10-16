@@ -17,26 +17,44 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/godbus/dbus"
 	"github.com/serge-v/stv/channel"
 )
+
+var (
+	debug      = flag.Bool("d", false, "debug in console")
+	cacheDir   = os.Getenv("HOME") + "/.cache/stv"
+	configDir  = os.Getenv("HOME") + "/.config/stv"
+	token      string
+	tokenFname string
+	baseURL    string
+	confURL    string
+	listURL    string
+	addr       = ":6061"
+	player     *videoPlayer
+	dbusc      *dbus.Conn
+	transport  *http.Transport
+)
+
+func init() {
+	tokenFname = configDir + "/token.txt"
+	player = newPlayer()
+}
 
 func mainHandler(w http.ResponseWriter, r *http.Request) {
 	if r.RequestURI != "/" {
 		return
 	}
 
-	stopPlayer()
+	player.stop()
 
 	var d mainData
 	d.List, d.Error = getLocalVideos()
 
 	var rd mainData
-	if err := unmarshalURL(listEndpoint, &rd); err != nil {
+	if err := unmarshalURL(listURL, &rd); err != nil {
 		rd.List = []channel.Item{channel.Item{Title: err.Error()}}
 		log.Println("mainHandler", err.Error())
 	}
@@ -67,7 +85,7 @@ func shutdownHandler(w http.ResponseWriter, r *http.Request) {
 
 func getVideoURL(id string) string {
 	var resp mainData
-	if err := unmarshalURL(listEndpoint, &resp); err != nil {
+	if err := unmarshalURL(listURL, &resp); err != nil {
 		log.Println("getVideoURL", err.Error())
 		return ""
 	}
@@ -86,19 +104,19 @@ func playHandler(w http.ResponseWriter, r *http.Request) {
 	if id != "" {
 		link := getVideoURL(id)
 		log.Println("starting player:", link)
-		d.Error = startPlayer(link)
+		d.Error = player.start(link)
 	}
 
 	seek := r.URL.Query().Get("seek")
 	if seek != "" {
-		d, _ := time.ParseDuration(seek)
-		seekPlayer(d)
+		//		d, _ := time.ParseDuration(seek)
+		//		seekPlayer(d)
 	}
 
 	vol := r.URL.Query().Get("vol")
 	if vol != "" {
-		n, _ := strconv.Atoi(vol)
-		changeVolume(n)
+		//		n, _ := strconv.Atoi(vol)
+		//		changeVolume(n)
 	}
 
 	if err := playTemplate.Execute(w, d); err != nil {
@@ -115,10 +133,7 @@ var state = programState{
 }
 
 func unmarshalURL(srcurl string, v interface{}) error {
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	client := &http.Client{Transport: tr}
+	client := &http.Client{Transport: transport}
 	resp, err := client.Get(srcurl)
 	//	resp, err := http.Get(srcurl)
 
@@ -140,11 +155,8 @@ func unmarshalURL(srcurl string, v interface{}) error {
 }
 
 func loadState() {
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	client := &http.Client{Transport: tr}
-	resp, err := client.Get(confapi)
+	client := &http.Client{Transport: transport}
+	resp, err := client.Get(confURL)
 	if err != nil {
 		log.Println("loadState", err.Error())
 		return
@@ -168,11 +180,8 @@ func saveState() {
 		log.Println(err)
 		return
 	}
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	client := &http.Client{Transport: tr}
-	resp, err := client.Post(confapi, "application/json", &b)
+	client := &http.Client{Transport: transport}
+	resp, err := client.Post(confURL, "application/json", &b)
 	if err != nil {
 		log.Println("saveState", err.Error())
 		return
@@ -182,62 +191,6 @@ func saveState() {
 		log.Println("saveState status", resp.Status)
 		return
 	}
-}
-
-var pid int
-
-func stopPlayer() error {
-	log.Println("player pid:", pid)
-	if pid > 0 {
-		cmd := exec.Command("pkill", player)
-		err := cmd.Run()
-		time.Sleep(time.Second)
-		log.Println("kill signal sent")
-		return err
-	}
-	return nil
-}
-
-func startPlayer(href string) error {
-	err := stopPlayer()
-	if err != nil {
-		return err
-	}
-
-	streamURL := href
-	args := append([]string{}, playerArgs...)
-	args = append(args, streamURL)
-	cmd := exec.Command(player, args...)
-	log.Printf("%+v\n", cmd.Args)
-
-	if err = cmd.Start(); err != nil {
-		log.Println(err)
-	}
-	pid = cmd.Process.Pid
-
-	go func() {
-		err = cmd.Wait()
-		if err != nil {
-			println(err.Error())
-		}
-		pid = 0
-		log.Println("player stopped")
-		saveState()
-	}()
-
-	return err
-}
-
-func seekPlayer(d time.Duration) {
-	// TODO: call dbus
-}
-
-func changeVolume(percent int) {
-	// TODO: call dbus
-}
-
-func pausePlayer() {
-	// TODO: call dbus
 }
 
 func getLocalVideos() ([]channel.Item, error) {
@@ -255,29 +208,6 @@ func getLocalVideos() ([]channel.Item, error) {
 	return list, nil
 }
 
-var debug = flag.Bool("d", false, "debug in console")
-var cacheDir = os.Getenv("HOME") + "/.cache/stv"
-var configDir = os.Getenv("HOME") + "/.config/stv"
-var player = "mplayer"
-var playerArgs = []string{"-geometry", "480x240+1920+0"}
-var token string
-var tokenFname string
-var confapi string
-var listEndpoint string
-var addr = ":6061"
-
-func init() {
-	user := os.Getenv("USER")
-	if user == "pi" || user == "alarm" {
-		player = "omxplayer"
-		playerArgs = []string{}
-	} else if user == "odroid" {
-		player = "vlc"
-		playerArgs = []string{}
-	}
-	tokenFname = configDir + "/token.txt"
-}
-
 func createToken() string {
 	c := 10
 	b := make([]byte, c)
@@ -292,7 +222,29 @@ func createToken() string {
 	return s
 }
 
-var dbusc *dbus.Conn
+func createProxy() *httputil.ReverseProxy {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		panic(err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(u)
+	proxy.Transport = transport
+	d := proxy.Director
+	proxy.Director = func(r *http.Request) {
+		r.Host = u.Host
+		if *debug {
+			log.Println("url1:", r.URL.String())
+		}
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/stv")
+		if *debug {
+			log.Println("url2:", r.URL.String())
+			buf, _ := httputil.DumpRequest(r, false)
+			log.Println("proxy:", string(buf))
+		}
+		d(r)
+	}
+	return proxy
+}
 
 func main() {
 	flag.Parse()
@@ -310,14 +262,16 @@ func main() {
 	} else if err != nil {
 		log.Fatal(err)
 	}
-	confapi = "https://conf.voilokov.com/" + token + "/stv/config"
-	listEndpoint = "https://conf.voilokov.com/" + token + "/stv/list.json"
-	proxyURL := "https://conf.voilokov.com/"
+
 	if *debug {
-		confapi = "https://conf.svtest.com:9001/" + token + "/stv/config"
-		listEndpoint = "https://conf.svtest.com:9001/" + token + "/stv/list.json"
-		proxyURL = "https://conf.svtest.com:9001/"
+		baseURL = "https://conf.svtest.com:9001/"
+		transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	} else {
+		baseURL = "https://conf.voilokov.com/"
+		transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: false}}
 	}
+	confURL = baseURL + token + "/stv/config"
+	listURL = baseURL + token + "/stv/list.json"
 	loadState()
 
 	//	dbusc, err = dbus.SessionBus()
@@ -325,7 +279,7 @@ func main() {
 	//		panic(err)
 	//	}
 
-	log.Println("player:", player, "token:", token)
+	log.Println("player:", player.cmd, "token:", token)
 	addrs, _ := net.InterfaceAddrs()
 	for _, addr := range addrs {
 		log.Println("addr: ", addr.String())
@@ -335,26 +289,8 @@ func main() {
 	http.HandleFunc("/restart", restartHandler)
 	http.HandleFunc("/play", playHandler)
 	http.HandleFunc("/", mainHandler)
-	u, err := url.Parse(proxyURL)
-	if err != nil {
-		panic(err)
-	}
-	proxy := httputil.NewSingleHostReverseProxy(u)
-	proxy.Transport = &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	d := proxy.Director
-	proxy.Director = func(r *http.Request) {
-		r.Host = u.Host
-		log.Println("url1:", r.URL.String())
-		r.URL.Path = strings.TrimPrefix(r.URL.Path, "/stv")
-		log.Println("url2:", r.URL.String())
-		buf, _ := httputil.DumpRequest(r, false)
-		log.Println("proxy:", string(buf))
-		d(r)
-	}
 
-	http.Handle("/stv/", proxy)
+	http.Handle("/stv/", createProxy())
 
 	log.Println("serving: http://localhost" + addr)
 	if err := http.ListenAndServe(addr, nil); err != nil {
