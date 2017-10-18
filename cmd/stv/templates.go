@@ -113,10 +113,10 @@ var playPageHTML = `
 		<tr><td style="color: red">ERROR: {{.Error}}</td><tr>
 		{{end}}
 		<tr><td><a href="/" class="button">Stop</a></td><tr>
-		<tr><td><a href="/play?seek=-60s" class="button">Seek -60</a></td></tr>
-		<tr><td><a href="/play?seek=60s" class="button">Seek +60</a></td></tr>
-		<tr><td><a href="/play?vol=+10" class="button">Vol -10</a></td></tr>
-		<tr><td><a href="/play?vol=-10" class="button">Vol +10</a></td></tr>
+		<tr><td><a href="/play?cmd=seek&arg=120" class="button">Forward</a></td></tr>
+		<tr><td><a href="/play?cmd=seek&arg=-120" class="button">Back</a></td></tr>
+		<tr><td><a href="/play?cmd=volume&arg-10" class="button">Vol -10</a></td></tr>
+		<tr><td><a href="/play?cmd=volume&arg=10" class="button">Vol +10</a></td></tr>
 	</table>
 </body>
 </html>

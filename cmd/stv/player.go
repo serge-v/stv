@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -8,9 +9,10 @@ import (
 )
 
 type videoPlayer struct {
-	pid  int      // process id
-	cmd  string   // depending on platform can be mplayer, omxplayer or vlc
-	args []string // default player startup parameters
+	pid      int      // process id
+	cmd      string   // depending on platform can be mplayer, omxplayer or vlc
+	args     []string // default player startup parameters
+	fifoName string   // mplayer control pipe
 }
 
 func newPlayer() *videoPlayer {
@@ -25,9 +27,22 @@ func newPlayer() *videoPlayer {
 		p.cmd = "vlc"
 		p.args = []string{}
 	} else {
+		p.fifoName = "/tmp/mp_fifo"
 		p.cmd = "mplayer"
-		p.args = []string{"-geometry", "480x240+1920+0"}
+		p.args = []string{"-geometry", "480x240+1920+0", "-input", "file=" + p.fifoName}
 	}
+
+	var err error
+
+	if len(p.fifoName) > 0 {
+		cmd := exec.Command("mkfifo", p.fifoName)
+		log.Println("create fifo")
+		if err = cmd.Run(); err != nil {
+			log.Println("mkfifo:", err.Error())
+		}
+		log.Println("fifo created")
+	}
+
 	return p
 }
 
@@ -70,4 +85,16 @@ func (p *videoPlayer) start(href string) error {
 	}()
 
 	return err
+}
+
+func (p *videoPlayer) command(s string) {
+	f, err := os.OpenFile(p.fifoName, os.O_WRONLY, 0)
+	if err != nil {
+		panic(err)
+	}
+	log.Println("command:", s)
+	if _, err := fmt.Fprintln(f, s); err != nil {
+		log.Println("command error:", err.Error())
+	}
+	f.Close()
 }

@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/godbus/dbus"
@@ -107,16 +108,11 @@ func playHandler(w http.ResponseWriter, r *http.Request) {
 		d.Error = player.start(link)
 	}
 
-	seek := r.URL.Query().Get("seek")
-	if seek != "" {
-		//		d, _ := time.ParseDuration(seek)
-		//		seekPlayer(d)
-	}
-
-	vol := r.URL.Query().Get("vol")
-	if vol != "" {
-		//		n, _ := strconv.Atoi(vol)
-		//		changeVolume(n)
+	command := r.URL.Query().Get("cmd")
+	arg := r.URL.Query().Get("arg")
+	if command != "" {
+		n, _ := strconv.Atoi(arg)
+		player.command(fmt.Sprintf("%s %d", command, n))
 	}
 
 	if err := playTemplate.Execute(w, d); err != nil {
