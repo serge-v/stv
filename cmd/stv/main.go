@@ -85,14 +85,24 @@ func shutdownHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func getVideoURL(id string) string {
+	list, _ := getLocalVideos()
+
 	var resp mainData
 	if err := unmarshalURL(listURL, &resp); err != nil {
 		log.Println("getVideoURL", err.Error())
 		return ""
 	}
-	for _, item := range resp.List {
+
+	list = append(list, resp.List...)
+
+	for _, item := range list {
 		if id == item.ID {
-			return "http://localhost:6061/stv/" + token + "/stv/file/" + id + ".mp4"
+			n, _ := strconv.Atoi(id)
+			if n < 1000 {
+				return item.Link
+			} else {
+				return "http://localhost:6061/stv/" + token + "/stv/file/" + id + ".mp4"
+			}
 		}
 	}
 	return ""
