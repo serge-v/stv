@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -9,10 +10,11 @@ import (
 )
 
 type videoPlayer struct {
-	pid      int      // process id
-	cmd      string   // depending on platform can be mplayer, omxplayer or vlc
-	args     []string // default player startup parameters
-	fifoName string   // mplayer control pipe
+	pid      int            // process id
+	cmd      string         // depending on platform can be mplayer, omxplayer or vlc
+	args     []string       // default player startup parameters
+	fifoName string         // mplayer control pipe
+	stdin    io.WriteCloser // stdin pipe for controlling omxplayer
 }
 
 func newPlayer() *videoPlayer {
@@ -68,6 +70,13 @@ func (p *videoPlayer) start(href string) error {
 	args := append([]string{}, p.args...)
 	args = append(args, streamURL)
 	cmd := exec.Command(p.cmd, args...)
+	if p.cmd == "omxplayer" {
+		p.stdin, err = cmd.StdinPipe()
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+	}
 	log.Printf("%+v\n", cmd.Args)
 
 	if err = cmd.Start(); err != nil {
@@ -87,14 +96,63 @@ func (p *videoPlayer) start(href string) error {
 	return err
 }
 
-func (p *videoPlayer) command(s string) {
+func (p *videoPlayer) seek(d int) {
+	switch p.cmd {
+	case "omxplayer":
+		switch {
+		case d > 300:
+			p.sendStdinCommand("^[[A")
+		case d < -300:
+			p.sendStdinCommand("^[[B")
+		case d > 0 && d < 300:
+			p.sendStdinCommand("^[[C")
+		case d < 0 && d > -300:
+			p.sendStdinCommand("^[[D")
+		}
+	case "mplayer":
+		p.sendPipeCommand(fmt.Sprintf("seek %d", d))
+	}
+
+}
+
+func (p *videoPlayer) volume(d int) {
+	switch p.cmd {
+	case "omxplayer":
+		switch {
+		case d > 0:
+			p.sendStdinCommand("+")
+		case d < 0:
+			p.sendStdinCommand("-")
+		}
+	case "mplayer":
+		p.sendPipeCommand(fmt.Sprintf("volume %d", d))
+	}
+}
+
+func (p *videoPlayer) pause() {
+	switch p.cmd {
+	case "omxplayer":
+		p.sendStdinCommand("p")
+	case "mplayer":
+		p.sendPipeCommand("pause")
+	}
+}
+
+func (p *videoPlayer) sendPipeCommand(s string) {
 	f, err := os.OpenFile(p.fifoName, os.O_WRONLY, 0)
 	if err != nil {
 		panic(err)
 	}
-	log.Println("command:", s)
+	log.Println("pipe command:", s)
 	if _, err := fmt.Fprintln(f, s); err != nil {
-		log.Println("command error:", err.Error())
+		log.Println("pipe command error:", err.Error())
 	}
 	f.Close()
+}
+
+func (p *videoPlayer) sendStdinCommand(s string) {
+	log.Println("stdin command:", s)
+	if _, err := fmt.Fprint(p.stdin, s); err != nil {
+		log.Println("stdin command error:", err.Error())
+	}
 }

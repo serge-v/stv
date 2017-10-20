@@ -103,7 +103,7 @@ var playPageHTML = `
     display: inline-block;
     font-size: 32px;
     width: 240px;
-    height: 100px;
+    height: 80px;
 }
 </style>
 </head>
@@ -113,10 +113,13 @@ var playPageHTML = `
 		<tr><td style="color: red">ERROR: {{.Error}}</td><tr>
 		{{end}}
 		<tr><td><a href="/" class="button">Stop</a></td><tr>
-		<tr><td><a href="/play?cmd=seek&arg=120" class="button">Forward</a></td></tr>
-		<tr><td><a href="/play?cmd=seek&arg=-120" class="button">Back</a></td></tr>
-		<tr><td><a href="/play?cmd=volume&arg-10" class="button">Vol -10</a></td></tr>
-		<tr><td><a href="/play?cmd=volume&arg=10" class="button">Vol +10</a></td></tr>
+		<tr><td><a href="/play?cmd=pause" class="button">Pause</a></td><tr>
+		<tr><td><a href="/play?cmd=volume&arg=-10" class="button">Volume -</a></td></tr>
+		<tr><td><a href="/play?cmd=volume&arg=10" class="button">Volume +</a></td></tr>
+		<tr><td><a href="/play?cmd=seek&arg=30" class="button">Seek +30 sec</a></td></tr>
+		<tr><td><a href="/play?cmd=seek&arg=-30" class="button">Seek -30 sec</a></td></tr>
+		<tr><td><a href="/play?cmd=seek&arg=600" class="button">Seek +600 sec</a></td></tr>
+		<tr><td><a href="/play?cmd=seek&arg=-600" class="button">Seek -600 sec</a></td></tr>
 	</table>
 </body>
 </html>
