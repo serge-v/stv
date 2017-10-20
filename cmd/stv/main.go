@@ -98,8 +98,8 @@ func getVideoURL(id string) string {
 	for _, item := range list {
 		if id == item.ID {
 			n, _ := strconv.Atoi(id)
-			if n < 1000 {
-				return item.Link
+			if n >= 1000 {
+				return item.Path
 			} else {
 				return "http://localhost:6061/stv/" + token + "/stv/file/" + id + ".mp4"
 			}
@@ -204,9 +204,9 @@ func getLocalVideos() ([]channel.Item, error) {
 	list := []channel.Item{}
 	for idx, path := range local {
 		it := channel.Item{
-			ID:    fmt.Sprintf("%d", idx),
+			ID:    fmt.Sprintf("%d", idx+1000),
 			Title: filepath.Base(path),
-			Link:  path,
+			Path:  path,
 		}
 		list = append(list, it)
 	}

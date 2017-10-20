@@ -8,4 +8,13 @@
 alias ls='ls --color=auto'
 PS1='[\u@\h \W]\$ '
 
-~/stv 2>>/tmp/stv.log &
+curl https://wet.voilokov.com/stvbin -o /tmp/stv -z /tmp/stv --retry 3
+if [[ -f /tmp/stv ]] ; then
+	chmod +x /tmp/stv
+	/tmp/stv 2>>/tmp/stv.log &
+else
+	~/stv 2>>/tmp/stv.log &
+fi
+
+ifconfig
+
