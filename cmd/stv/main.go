@@ -120,9 +120,15 @@ func playHandler(w http.ResponseWriter, r *http.Request) {
 
 	command := r.URL.Query().Get("cmd")
 	arg := r.URL.Query().Get("arg")
-	if command != "" {
+	switch command {
+	case "seek":
 		n, _ := strconv.Atoi(arg)
-		player.command(fmt.Sprintf("%s %d", command, n))
+		player.seek(n)
+	case "volume":
+		n, _ := strconv.Atoi(arg)
+		player.volume(n)
+	case "pause":
+		player.pause()
 	}
 
 	if err := playTemplate.Execute(w, d); err != nil {
