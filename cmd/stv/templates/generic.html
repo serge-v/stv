@@ -1,0 +1,29 @@
+<html>
+<head>
+<title>Videos</title>
+<meta name="viewport" content="width=device-width; maximum-scale=1; minimum-scale=1;" />
+<style>
+.button {
+    background-color: #4C50AF;
+    border: none;
+    color: white;
+    padding: 15px 32px;
+    text-align: center;
+    vertical-align: middle;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 32px;
+    width: 240px;
+    height: 100px;
+}
+</style>
+</head>
+<body>
+	<table border="0" style="width: 260px">
+		{{if .Error}}
+		<tr><td style="color: red">ERROR: {{.Error}}</td><tr>
+		{{end}}
+		<tr><td><a href="/" class="button">Stop</a></td><tr>
+	</table>
+</body>
+</html>

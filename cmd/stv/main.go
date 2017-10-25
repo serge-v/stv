@@ -62,7 +62,7 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 
 	d.List = append(d.List, rd.List...)
 
-	if err := mt.Execute(w, d); err != nil {
+	if err := mainTemplate.Execute(w, d); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -71,7 +71,7 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 func restartHandler(w http.ResponseWriter, r *http.Request) {
 	var d genericData
 	d.Error = exec.Command("sudo", "shutdown", "-r", "5").Run()
-	if err := gt.Execute(w, d); err != nil {
+	if err := genericTemplate.Execute(w, d); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -79,7 +79,7 @@ func restartHandler(w http.ResponseWriter, r *http.Request) {
 func shutdownHandler(w http.ResponseWriter, r *http.Request) {
 	var d genericData
 	d.Error = exec.Command("sudo", "shutdown", "-h", "5").Run()
-	if err := gt.Execute(w, d); err != nil {
+	if err := genericTemplate.Execute(w, d); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
